@@ -65,8 +65,34 @@ static NSOperationQueue *unzipQueue;
         }];
         return;
     }
+    NSString *cacheKey = [self cacheKey:URLRequest.URL];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:[self cachePath: cacheKey]]) {
+        NSString *cachePath = [self cachePath:cacheKey];
+        [parseQueue addOperationWithBlock:^{
+            NSData *data = [NSData dataWithContentsOfFile:cachePath];
+            [self parseWithData:data cacheKey:cacheKey completionBlock:^(SVGAVideoEntity * _Nonnull videoItem) {
+                if (completionBlock) {
+                    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+                        completionBlock(videoItem);
+                    }];
+                }
+            } failureBlock:^(NSError * _Nonnull error) {
+                [self clearCache:cacheKey];
+                if (failureBlock) {
+                    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+                        failureBlock(error);
+                    }];
+                }
+            }];
+        }];
+        return;
+    }
     [[[NSURLSession sharedSession] dataTaskWithRequest:URLRequest completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         if (error == nil && data != nil) {
+            //save to file
+            NSString *path = [self cachePath:[self cacheKey:URLRequest.URL]];
+            BOOL result = [data writeToFile:path atomically:true];
+//            NSLog(@"Save to cache result: %@", @(result));
             [self parseWithData:data cacheKey:[self cacheKey:URLRequest.URL] completionBlock:^(SVGAVideoEntity * _Nonnull videoItem) {
                 if (completionBlock) {
                     [[NSOperationQueue mainQueue] addOperationWithBlock:^{
@@ -358,6 +384,11 @@ static NSOperationQueue *unzipQueue;
 - (nullable NSString *)cacheDirectory:(NSString *)cacheKey {
     NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
     return [cacheDir stringByAppendingFormat:@"/%@", cacheKey];
+}
+
+- (nullable NSString *)cachePath:(NSString *)cacheKey {
+    NSString *cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    return [cacheDir stringByAppendingFormat:@"/%@.svga", cacheKey];
 }
 
 - (NSString *)MD5String:(NSString *)str {
